@@ -1,0 +1,15 @@
+{
+  "name": "Offline MP3 Player",
+  "short_name": "Music Player",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3844/3844720.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

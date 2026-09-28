@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offline MP3 & Lyrics Player</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#121212">
+
+  <!-- ID3 Tag Reader Library for Album Covers -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 20px;
+      background-color: #121212;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    .card {
+      background: #1e1e1e;
+      padding: 20px;
+      border-radius: 16px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+      text-align: center;
+    }
+    /* Cover Art Box */
+    #cover-container {
+      width: 200px;
+      height: 200px;
+      margin: 0 auto 15px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #2a2a2a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+    #cover-art {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+    #cover-placeholder {
+      color: #555;
+      font-size: 50px;
+    }
+    /* Controls UI */
+    .file-input-wrapper {
+      margin-bottom: 15px;
+    }
+    input[type="file"] {
+      display: none;
+    }
+    .btn {
+      background: #00d2ff;
+      color: #000;
+      padding: 10px 18px;
+      border-radius: 20px;
+      font-weight: bold;
+      cursor: pointer;
+      display: inline-block;
+      border: none;
+      font-size: 14px;
+    }
+    .controls {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      align-items: center;
+      margin-top: 15px;
+    }
+    .control-btn {
+      background: #2a2a2a;
+      border: 2px solid transparent;
+      color: white;
+      font-size: 18px;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+    .control-btn.inactive {
+      opacity: 0.4;
+    }
+    .control-btn.active {
+      opacity: 1;
+      border-color: #00d2ff;
+      background: #333;
+    }
+    /* Lyrics Container */
+    #lyrics-container {
+      height: 220px;
+      overflow-y: auto;
+      scroll-behavior: smooth;
+      padding: 10px;
+      background: #181818;
+      border-radius: 12px;
+    }
+    .lyric-line {
+      padding: 8px 0;
+      color: #777;
+      font-size: 16px;
+      transition: color 0.2s, font-size 0.2s;
+    }
+    .lyric-line.active {
+      color: #00d2ff;
+      font-weight: bold;
+      font-size: 18px;
+    }
+    /* Song Title */
+    #song-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 10px 0 5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #time-display {
+      font-size: 12px;
+      color: #aaa;
+    }
+    input[type="range"] {
+      width: 100%;
+      margin-top: 10px;
+      accent-color: #00d2ff;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  
+  <!-- File Pickers -->
+  <div class="card file-input-wrapper">
+    <label class="btn" for="audio-input">📂 Pick MP3 Files</label>
+    <input type="file" id="audio-input" accept="audio/mp3, audio/*" multiple>
+
+    <label class="btn" for="lrc-input" style="background: #333; color: #fff; margin-left: 8px;">📜 Pick .LRC Files</label>
+    <input type="file" id="lrc-input" accept=".lrc" multiple>
+  </div>
+
+  <!-- Player Main View -->
+  <div class="card">
+    <!-- Cover Art -->
+    <div id="cover-container">
+      <img id="cover-art" src="" alt="Album Art">
+      <div id="cover-placeholder">🎵</div>
+    </div>
+
+    <!-- Song Info -->
+    <div id="song-title">No Track Loaded</div>
+    <div id="time-display">0:00 / 0:00</div>
+    <input type="range" id="seek-bar" value="0" min="0" max="100">
+
+    <!-- Player Controls -->
+    <div class="controls">
+      <button class="control-btn inactive" id="btn-shuffle" onclick="toggleShuffle()" title="Shuffle">🔀</button>
+      <button class="control-btn" id="btn-prev" onclick="playPrev()">⏮️</button>
+      <button class="control-btn" id="btn-play" onclick="togglePlay()">▶️</button>
+      <button class="control-btn" id="btn-next" onclick="playNext()">⏭️</button>
+      <button class="control-btn inactive" id="btn-loop" onclick="toggleLoop()" title="Loop Mode">🔁</button>
+    </div>
+  </div>
+
+  <!-- Lyrics Box -->
+  <div class="card">
+    <div id="lyrics-container">
+      <div class="lyric-line">Load an MP3 & matching .lrc file to view lyrics</div>
+    </div>
+  </div>
+
+</div>
+
+<audio id="audio-element"></audio>
+
+<script>
+  // DOM Elements
+  const audio = document.getElementById('audio-element');
+  const audioInput = document.getElementById('audio-input');
+  const lrcInput = document.getElementById('lrc-input');
+  const songTitle = document.getElementById('song-title');
+  const timeDisplay = document.getElementById('time-display');
+  const seekBar = document.getElementById('seek-bar');
+  const lyricsContainer = document.getElementById('lyrics-container');
+  const coverArt = document.getElementById('cover-art');
+  const coverPlaceholder = document.getElementById('cover-placeholder');
+  const btnPlay = document.getElementById('btn-play');
+  const btnShuffle = document.getElementById('btn-shuffle');
+  const btnLoop = document.getElementById('btn-loop');
+
+  // State Variables
+  let playlist = [];
+  let originalPlaylist = [];
+  let lrcFiles = {};
+  let lyricsData = [];
+  let currentIndex = 0;
+  let isShuffle = false;
+  let loopMode = 0; // 0 = Off, 1 = Repeat All, 2 = Repeat One
+
+  // Register PWA Service Worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Registration failed:', err));
+  }
+
+  // --- File Handlers ---
+  audioInput.addEventListener('change', (e) => {
+    playlist = Array.from(e.target.files).filter(file => file.type.includes('audio') || file.name.endsWith('.mp3'));
+    originalPlaylist = [...playlist];
+    if (isShuffle) applyShuffle();
+    if (playlist.length > 0) {
+      currentIndex = 0;
+      loadTrack(currentIndex);
+    }
+  });
+
+  lrcInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files);
+    files.forEach(file => {
+      const baseName = file.name.replace(/\.[^/.]+$/, "").toLowerCase();
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        lrcFiles[baseName] = parseLRC(event.target.result);
+        // Reload current lyrics if matching song is already loaded
+        if (playlist[currentIndex]) {
+          const currentBase = playlist[currentIndex].name.replace(/\.[^/.]+$/, "").toLowerCase();
+          if (currentBase === baseName) renderLyrics(lrcFiles[baseName]);
+        }
+      };
+      reader.readAsText(file);
+    });
+  });
+
+  // --- Load Track & Album Cover ---
+  function loadTrack(index) {
+    if (!playlist[index]) return;
+    const file = playlist[index];
+    audio.src = URL.createObjectURL(file);
+    songTitle.innerText = file.name.replace(/\.[^/.]+$/, "");
+
+    // Read ID3 Cover Art
+    extractCoverArt(file);
+
+    // Look for matching LRC
+    const baseName = file.name.replace(/\.[^/.]+$/, "").toLowerCase();
+    if (lrcFiles[baseName]) {
+      renderLyrics(lrcFiles[baseName]);
+    } else {
+      lyricsData = [];
+      lyricsContainer.innerHTML = '<div class="lyric-line">No .lrc file loaded for this song</div>';
+    }
+
+    audio.play();
+    btnPlay.innerText = '⏸️';
+  }
+
+  function extractCoverArt(file) {
+    if (typeof jsmediatags === 'undefined') return;
+
+    jsmediatags.read(file, {
+      onSuccess: function(tag) {
+        const picture = tag.tags.picture;
+        if (picture) {
+          let base64String = "";
+          for (let i = 0; i < picture.data.length; i++) {
+            base64String += String.fromCharCode(picture.data[i]);
+          }
+          const base64 = "data:" + picture.format + ";base64," + window.btoa(base64String);
+          coverArt.src = base64;
+          coverArt.style.display = 'block';
+          coverPlaceholder.style.display = 'none';
+        } else {
+          resetCoverArt();
+        }
+      },
+      onError: function() {
+        resetCoverArt();
+      }
+    });
+  }
+
+  function resetCoverArt() {
+    coverArt.style.display = 'none';
+    coverPlaceholder.style.display = 'block';
+  }
+
+  // --- Playback Controls ---
+  function togglePlay() {
+    if (!audio.src) return;
+    if (audio.paused) {
+      audio.play();
+      btnPlay.innerText = '⏸️';
+    } else {
+      audio.pause();
+      btnPlay.innerText = '▶️';
+    }
+  }
+
+  function playNext() {
+    if (playlist.length === 0) return;
+    if (currentIndex < playlist.length - 1) {
+      currentIndex++;
+      loadTrack(currentIndex);
+    } else if (loopMode === 1) { // Repeat All
+      currentIndex = 0;
+      loadTrack(currentIndex);
+    }
+  }
+
+  function playPrev() {
+    if (playlist.length === 0) return;
+    if (audio.currentTime > 3) {
+      audio.currentTime = 0;
+    } else if (currentIndex > 0) {
+      currentIndex--;
+      loadTrack(currentIndex);
+    } else if (loopMode === 1) {
+      currentIndex = playlist.length - 1;
+      loadTrack(currentIndex);
+    }
+  }
+
+  // --- Loop & Shuffle Logic ---
+  function toggleShuffle() {
+    isShuffle = !isShuffle;
+    if (isShuffle) {
+      btnShuffle.classList.remove('inactive');
+      btnShuffle.classList.add('active');
+      applyShuffle();
+    } else {
+      btnShuffle.classList.remove('active');
+      btnShuffle.classList.add('inactive');
+      const currentTrack = playlist[currentIndex];
+      playlist = [...originalPlaylist];
+      if (currentTrack) currentIndex = playlist.indexOf(currentTrack);
+    }
+  }
+
+  function applyShuffle() {
+    const currentTrack = playlist[currentIndex];
+    for (let i = playlist.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [playlist[i], playlist[j]] = [playlist[j], playlist[i]];
+    }
+    if (currentTrack) currentIndex = playlist.indexOf(currentTrack);
+  }
+
+  function toggleLoop() {
+    loopMode = (loopMode + 1) % 3;
+    if (loopMode === 0) { // Off
+      btnLoop.innerText = '🔁';
+      btnLoop.classList.remove('active');
+      btnLoop.classList.add('inactive');
+    } else if (loopMode === 1) { // Repeat All
+      btnLoop.innerText = '🔁';
+      btnLoop.classList.remove('inactive');
+      btnLoop.classList.add('active');
+    } else if (loopMode === 2) { // Repeat One
+      btnLoop.innerText = '🔂';
+      btnLoop.classList.remove('inactive');
+      btnLoop.classList.add('active');
+    }
+  }
+
+  // Auto-advance track on finish
+  audio.addEventListener('ended', () => {
+    if (loopMode === 2) { // Repeat One
+      audio.currentTime = 0;
+      audio.play();
+    } else {
+      playNext();
+    }
+  });
+
+  // --- Time & SeekBar Sync ---
+  audio.addEventListener('timeupdate', () => {
+    if (isNaN(audio.duration)) return;
+    
+    // Update seekbar & time text
+    seekBar.value = (audio.currentTime / audio.duration) * 100;
+    timeDisplay.innerText = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+
+    // Sync Lyrics
+    syncLyrics(audio.currentTime);
+  });
+
+  seekBar.addEventListener('input', () => {
+    if (audio.duration) {
+      audio.currentTime = (seekBar.value / 100) * audio.duration;
+    }
+  });
+
+  function formatTime(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  }
+
+  // --- LRC Parsing & Syncing ---
+  function parseLRC(text) {
+    const lines = text.split('\n');
+    const result = [];
+    const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
+
+    lines.forEach(line => {
+      const match = timeRegex.exec(line);
+      if (match) {
+        const min = parseInt(match[1]);
+        const sec = parseInt(match[2]);
+        const ms = parseInt(match[3].length === 2 ? match[3] * 10 : match[3]);
+        const time = min * 60 + sec + ms / 1000;
+        const text = line.replace(timeRegex, '').trim();
+        result.push({ time, text });
+      }
+    });
+    return result.sort((a, b) => a.time - b.time);
+  }
+
+  function renderLyrics(data) {
+    lyricsData = data;
+    lyricsContainer.innerHTML = '';
+    lyricsData.forEach((item, idx) => {
+      const div = document.createElement('div');
+      div.className = 'lyric-line';
+      div.id = `lyric-${idx}`;
+      div.innerText = item.text || '...';
+      lyricsContainer.appendChild(div);
+    });
+  }
+
+  function syncLyrics(currentTime) {
+    if (lyricsData.length === 0) return;
+
+    for (let i = 0; i < lyricsData.length; i++) {
+      const nextTime = lyricsData[i + 1] ? lyricsData[i + 1].time : Infinity;
+      if (currentTime >= lyricsData[i].time && currentTime < nextTime) {
+        const activeLine = document.getElementById(`lyric-${i}`);
+        if (activeLine && !activeLine.classList.contains('active')) {
+          document.querySelectorAll('.lyric-line').forEach(el => el.classList.remove('active'));
+          activeLine.classList.add('active');
+          activeLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        break;
+      }
+    }
+  }
+</script>
+
+</body>
+</html>
