@@ -4,7 +4,6 @@ const CACHE_NAME = 'music-player-v1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './manifest.json',
   'https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js'
 ];
 
