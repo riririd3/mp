@@ -256,10 +256,11 @@
 
   <!-- Track Info -->
   <div class="info-container">
-    <div id="song-title">Select Songs to Start</div>
-    <div id="time-display">0:00 / 0:00</div>
-    <input type="range" id="seek-bar" value="0" min="0" max="100">
-  </div>
+  <div id="song-title">Select Songs to Start</div>
+  <div id="artist-name" style="font-size: 13px; color: #00d2ff; margin-bottom: 4px;">Unknown Artist</div>
+  <div id="time-display">0:00 / 0:00</div>
+  <input type="range" id="seek-bar" value="0" min="0" max="100">
+</div>
 
   <!-- Controls -->
   <div class="controls">
@@ -324,6 +325,53 @@
   const modeText = document.getElementById('mode-text');
   const playlistModal = document.getElementById('playlist-modal');
   const playlistItems = document.getElementById('playlist-items');
+  // 1. Add variable at the top of your script:
+const artistName = document.getElementById('artist-name');
+
+// 2. Update extractCoverArt function to also extract ID3 Artist tag:
+function extractCoverArt(file) {
+  // Set fallback artist name from filename if formatted "Artist - Song.mp3"
+  const rawName = getBaseName(file.name);
+  if (rawName.includes(' - ')) {
+    const parts = rawName.split(' - ');
+    artistName.innerText = parts[0].trim();
+    songTitle.innerText = parts.slice(1).join(' - ').trim();
+  } else {
+    songTitle.innerText = rawName;
+    artistName.innerText = 'Unknown Artist';
+  }
+
+  if (typeof jsmediatags === 'undefined') return;
+
+  jsmediatags.read(file, {
+    onSuccess: function(tag) {
+      // Extract Embedded ID3 Artist Name
+      if (tag.tags.artist) {
+        artistName.innerText = tag.tags.artist;
+      }
+      if (tag.tags.title) {
+        songTitle.innerText = tag.tags.title;
+      }
+
+      // Extract Cover Art
+      const picture = tag.tags.picture;
+      if (picture) {
+        let base64String = "";
+        for (let i = 0; i < picture.data.length; i++) {
+          base64String += String.fromCharCode(picture.data[i]);
+        }
+        coverArt.src = "data:" + picture.format + ";base64," + window.btoa(base64String);
+        coverArt.style.display = 'block';
+        coverPlaceholder.style.display = 'none';
+      } else { 
+        resetCover(); 
+      }
+    },
+    onError: function() { 
+      resetCover(); 
+    }
+  });
+}
 
   const svgIcons = {
     play: `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`,
@@ -377,25 +425,25 @@
 
   // --- Track Loading ---
   function loadTrack(index) {
-    if (!playlist[index]) return;
-    const file = playlist[index];
-    audio.src = URL.createObjectURL(file);
-    songTitle.innerText = getBaseName(file.name);
+  if (!playlist[index]) return;
+  const file = playlist[index];
+  audio.src = URL.createObjectURL(file);
 
-    extractCoverArt(file);
+  // Extracts embedded ID3 metadata (Title + Artist + Cover Art)
+  extractCoverArt(file);
 
-    // Reliable LRC Matching
-    const currentBase = getBaseName(file.name).toLowerCase().trim();
-    if (lrcFiles[currentBase]) {
-      renderLyrics(lrcFiles[currentBase]);
-    } else {
-      lyricsData = [];
-      lyricsContainer.innerHTML = '<div class="lyric-line">No matching .lrc file loaded</div>';
-    }
+  // Reliable LRC Matching
+  const currentBase = getBaseName(file.name).toLowerCase().trim();
+  if (lrcFiles[currentBase]) {
+    renderLyrics(lrcFiles[currentBase]);
+  } else {
+    lyricsData = [];
+    lyricsContainer.innerHTML = '<div class="lyric-line">No matching .lrc file loaded</div>';
+  }
 
-    renderPlaylistMenu();
-    audio.play();
-    playIcon.innerHTML = svgIcons.pause;
+  renderPlaylistMenu();
+  audio.play();
+  playIcon.innerHTML = svgIcons.pause;
   }
 
   function extractCoverArt(file) {
