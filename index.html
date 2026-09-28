@@ -306,50 +306,81 @@
     <input type="file" id="fileInput" accept="audio/*,.lrc" multiple class="hidden">
 
     <script>
-        /* PWA Service Worker & Manifest Generator */
-        (function setupPWA() {
-            const manifestData = {
-                name: "SoundLRC Offline Player",
-                short_name: "SoundLRC",
-                start_url: "./",
-                display: "standalone",
-                background_color: "#060911",
-                theme_color: "#060911",
-                icons: [
-                    {
-                        src: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' fill='%2338bdf8'><rect width='512' height='512' rx='100' fill='%23090d16'/><path d='M256 160c-53 0-96 43-96 96s43 96 96 96 96-43 96-96-43-96-96-96zm0 144c-26.5 0-48-21.5-48-48s21.5-48 48-48 48 21.5 48 48-21.5 48-48 48z' fill='%2338bdf8'/></svg>",
-                        sizes: "512x512",
-                        type: "image/svg+xml",
-                        purpose: "any maskable"
-                    }
-                ]
-            };
-            const manifestBlob = new Blob([JSON.stringify(manifestData)], { type: 'application/json' });
-            document.getElementById('manifestPlaceholder').setAttribute('href', URL.createObjectURL(manifestBlob));
-
-            if ('serviceWorker' in navigator) {
-                const swCode = `
-                    const CACHE_NAME = 'soundlrc-v1';
-                    self.addEventListener('install', (e) => {
-                        e.waitUntil(
-                            caches.open(CACHE_NAME).then((cache) => {
-                                return cache.addAll(['./']);
-                            })
-                        );
-                        self.skipWaiting();
-                    });
-
-                    self.addEventListener('fetch', (e) => {
-                        e.respondWith(
-                            caches.match(e.request).then((res) => res || fetch(e.request).catch(() => caches.match('./')))
-                        );
-                    });
-                `;
-                const swBlob = new Blob([swCode], { type: 'application/javascript' });
-                navigator.serviceWorker.register(URL.createObjectURL(swBlob))
-                    .catch(err => console.log('ServiceWorker registration skipped:', err));
+        /* ================================================================
+   PWA SETUP — Inline Manifest via Data URI, External Service Worker
+   The manifest stays inline (no extra home-screen entry).
+   The service worker must be a real file (browsers require it).
+================================================================ */
+(function setupPWA() {
+    // --- Inline Manifest via data: URI (keeps everything in one HTML file) ---
+    const manifestData = {
+        name: "SoundLRC Offline Player",
+        short_name: "SoundLRC",
+        start_url: "./",
+        scope: "./",
+        display: "standalone",
+        background_color: "#060911",
+        theme_color: "#060911",
+        icons: [
+            {
+                src: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' fill='%2338bdf8'><rect width='512' height='512' rx='100' fill='%23090d16'/><path d='M256 160c-53 0-96 43-96 96s43 96 96 96 96-43 96-96-43-96-96-96zm0 144c-26.5 0-48-21.5-48-48s21.5-48 48-48 48 21.5 48 48-21.5 48-48 48z' fill='%2338bdf8'/></svg>",
+                sizes: "512x512",
+                type: "image/svg+xml",
+                purpose: "any maskable"
             }
-        })();
+        ]
+    };
+
+    const manifestBlob = new Blob([JSON.stringify(manifestData)], { type: 'application/json' });
+    const manifestUrl = URL.createObjectURL(manifestBlob);
+
+    // Find or create the manifest <link>
+    let manifestLink = document.getElementById('manifestPlaceholder');
+    if (manifestLink) {
+        manifestLink.setAttribute('href', manifestUrl);
+    } else {
+        manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        manifestLink.href = manifestUrl;
+        document.head.appendChild(manifestLink);
+    }
+
+    // --- Register the REAL service worker file ---
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js', { scope: './' })
+                .then((reg) => {
+                    console.log('✅ Service Worker registered:', reg.scope);
+
+                    // Auto-check for updates every time the app opens
+                    reg.update();
+
+                    // If a new SW is waiting, activate it and reload
+                    reg.addEventListener('updatefound', () => {
+                        const newWorker = reg.installing;
+                        if (!newWorker) return;
+                        newWorker.addEventListener('statechange', () => {
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                // New version ready → tell it to take over
+                                newWorker.postMessage('SKIP_WAITING');
+                                // Optionally reload to fetch fresh HTML:
+                                // window.location.reload();
+                            }
+                        });
+                    });
+                })
+                .catch((err) => console.warn('Service Worker registration failed:', err));
+        });
+
+        // When SW changes, reload once so user sees fresh content
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (refreshing) return;
+            refreshing = true;
+            window.location.reload();
+        });
+    }
+})();
     </script>
 
     <script>
