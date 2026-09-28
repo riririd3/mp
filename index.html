@@ -303,6 +303,7 @@
 
     <!-- Hidden Native Audio Engine -->
     <audio id="audioEngine" class="hidden"></audio>
+    <input type="file" id="fileInput" accept="audio/*,.lrc" multiple class="hidden">
 
     <script>
         /* PWA Service Worker & Manifest Generator */
@@ -949,8 +950,5 @@
             syncLyricPosition(audioEngine.currentTime);
         }
     </script>
-    <!-- Hidden Native Audio Engine + File Input -->
-<audio id="audioEngine" class="hidden"></audio>
-<input type="file" id="fileInput" accept="audio/*,.lrc" multiple class="hidden">
 </body>
 </html>
