@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Music & Lyrics Player</title>
+    
+    <!-- PWA Meta Tags for Android / Mobile Chrome -->
+    <meta name="theme-color" content="#090d16">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="LyricPlayer">
+    <meta name="description" content="100% Offline Local Audio & Synchronized Lyric Player for Android">
+
+    <!-- Web App Manifest via Data URI -->
+    <link rel="manifest" id="manifestPlaceholder">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- jsmediatags for reading embedded ID3 album art -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #060911;
+            color: #f1f5f9;
+            overscroll-behavior-y: none;
+        }
+
+        /* Custom Touch Scrollbar */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Lyric Styling & Glow Effects */
+        .lyric-line {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            opacity: 0.3;
+            transform: scale(0.95);
+            transform-origin: center center;
+            filter: blur(0.4px);
+        }
+
+        .lyric-line.active {
+            opacity: 1;
+            transform: scale(1.08);
+            color: #38bdf8;
+            font-weight: 700;
+            filter: blur(0px);
+            text-shadow: 0 0 16px rgba(56, 189, 248, 0.4);
+        }
+
+        .lyric-line.passed {
+            opacity: 0.5;
+            filter: blur(0px);
+        }
+
+        /* Custom Input Range Sliders for Touch */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        
+        input[type=range]:focus {
+            outline: none;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 9999px;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -5px;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+            transition: transform 0.1s ease;
+        }
+
+        input[type=range]:active::-webkit-slider-thumb {
+            transform: scale(1.3);
+        }
+
+        /* Glassmorphic Cards */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Album Cover Glow while playing */
+        @keyframes coverGlow {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4), 0 0 18px 2px rgba(56, 189, 248, 0.15);
+            }
+            50% {
+                box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15), 0 0 26px 4px rgba(56, 189, 248, 0.3);
+            }
+        }
+        .cover-playing {
+            animation: coverGlow 2.4s ease-in-out infinite;
+        }
+
+        /* Playlist mode button active pulse */
+        .mode-active {
+            background: rgba(56, 189, 248, 0.15) !important;
+            color: #38bdf8 !important;
+            border-color: rgba(56, 189, 248, 0.4) !important;
+        }
+    </style>
+</head>
+
+<body class="h-screen w-screen overflow-hidden flex flex-col justify-between select-none">
+
+    <!-- Top Navigation / App Bar -->
+    <header class="w-full px-5 pt-4 pb-2 flex items-center justify-between z-20 glass-panel border-b-0 rounded-b-2xl">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+                <i class="fa-solid fa-compact-disc text-lg"></i>
+            </div>
+            <div>
+                <h1 class="text-base font-bold text-slate-100 leading-none">SoundLRC</h1>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <!-- PWA Install Button (Dynamic) -->
+            <button id="pwaInstallBtn" class="hidden text-xs bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all shadow-lg shadow-sky-500/20 active:scale-95">
+                <i class="fa-solid fa-download"></i>
+                <span>Install App</span>
+            </button>
+
+            <!-- Library/Playlist Drawer Toggle -->
+            <button id="playlistToggleBtn" class="w-9 h-9 rounded-full bg-slate-800/80 border border-slate-700/60 text-slate-300 flex items-center justify-center active:scale-95 transition-transform">
+                <i class="fa-solid fa-list-ul"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Central Content Area (Lyrics + Artwork Overlay) -->
+    <main class="flex-1 relative overflow-hidden flex flex-col justify-between p-4 sm:p-6 z-10">
+        
+        <!-- Track Mini Header / Artwork Display -->
+        <div class="flex items-center gap-4 p-3 rounded-2xl glass-panel shadow-xl">
+            <div class="relative w-14 h-14 rounded-xl overflow-hidden bg-slate-800 flex-shrink-0 border border-slate-700/60 shadow-inner">
+                <img id="albumArt" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='1.5'><circle cx='12' cy='12' r='10'/><circle cx='12' cy='12' r='3'/></svg>" class="w-full h-full object-cover" alt="Album Art">
+            </div>
+            
+            <div class="flex-1 min-w-0">
+                <h2 id="trackTitle" class="text-base font-bold text-slate-100 truncate">No Song Loaded</h2>
+                <p id="trackArtist" class="text-xs text-slate-400 truncate mt-0.5">Select local MP3 or LRC files</p>
+                <div class="flex items-center gap-2 mt-1">
+                    <span id="lrcStatusBadge" class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-500 border border-slate-700/40">No LRC Loaded</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lyrics Container -->
+        <div class="relative flex-1 my-3 overflow-hidden rounded-2xl">
+            <div id="lyricsContainer" class="no-scrollbar h-full overflow-y-auto px-4 py-32 flex flex-col items-center gap-6 text-center scroll-smooth">
+                <!-- Fallback empty state -->
+                <div class="my-auto flex flex-col items-center gap-3 text-slate-500">
+                    <div class="w-16 h-16 rounded-full bg-slate-900/80 border border-slate-800 flex items-center justify-center text-slate-600 text-2xl mb-1">
+                        <i class="fa-solid fa-align-center"></i>
+                    </div>
+                    <p class="text-sm font-medium text-slate-400">No synchronized lyrics</p>
+                    <p class="text-xs text-slate-600 max-w-xs text-center">Load a matching <code class="text-sky-400 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">.lrc</code> file or pick audio with embedded lyrics</p>
+                </div>
+            </div>
+
+            <!-- Soft Top/Bottom Vignette Blurs for Lyric Scrolling -->
+            <div class="pointer-events-none absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-[#060911] to-transparent"></div>
+            <div class="pointer-events-none absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#060911] to-transparent"></div>
+        </div>
+    </main>
+
+    <!-- Bottom Playback Control Dock -->
+    <footer class="w-full glass-panel border-t border-slate-800/80 rounded-t-3xl px-5 pt-3 pb-6 z-20 flex flex-col gap-3 shadow-2xl">
+        
+        <!-- Scrubber & Timers -->
+        <div class="flex flex-col gap-1">
+            <input type="range" id="seekSlider" min="0" max="100" value="0" step="0.1" class="w-full">
+            <div class="flex justify-between text-[11px] font-mono text-slate-400 font-medium px-1">
+                <span id="currentTime">00:00</span>
+                <span id="totalDuration">00:00</span>
+            </div>
+        </div>
+
+        <!-- Main Media Control Buttons -->
+        <div class="flex items-center justify-between px-2 pt-1">
+            <!-- Playback Mode Cycler (Shuffle → Loop All → Loop One) -->
+            <button id="modeBtn" class="w-10 h-10 rounded-full bg-slate-800/80 text-slate-300 flex items-center justify-center active:scale-90 transition-transform border border-slate-700/50">
+                <i class="fa-solid fa-repeat text-sm" id="modeIcon"></i>
+            </button>
+
+            <!-- Center Controls -->
+            <div class="flex items-center gap-5">
+                <button id="prevBtn" class="w-10 h-10 rounded-full text-slate-300 hover:text-white flex items-center justify-center active:scale-90 transition-transform">
+                    <i class="fa-solid fa-backward-step text-xl"></i>
+                </button>
+
+                <button id="playPauseBtn" class="w-14 h-14 rounded-full bg-sky-500 hover:bg-sky-400 text-slate-950 flex items-center justify-center text-xl font-bold transition-transform active:scale-90 shadow-lg shadow-sky-500/25">
+                    <i class="fa-solid fa-play ml-1" id="playIcon"></i>
+                </button>
+
+                <button id="nextBtn" class="w-10 h-10 rounded-full text-slate-300 hover:text-white flex items-center justify-center active:scale-90 transition-transform">
+                    <i class="fa-solid fa-forward-step text-xl"></i>
+                </button>
+            </div>
+
+            <!-- Lyric Delay Offset Adjuster Button -->
+            <button id="syncOffsetBtn" class="w-10 h-10 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-300 flex items-center justify-center active:scale-90 transition-transform border border-slate-700/50">
+                <i class="fa-solid fa-sliders text-sm"></i>
+            </button>
+        </div>
+    </footer>
+
+    <!-- Playlist Drawer (Slide-Over) -->
+    <div id="playlistDrawer" class="fixed inset-0 bg-black/60 backdrop-blur-md z-40 transition-opacity duration-300 opacity-0 pointer-events-none flex justify-end">
+        <div id="drawerContent" class="w-full max-w-md h-full bg-slate-900 border-l border-slate-800 flex flex-col justify-between p-5 transform translate-x-full transition-transform duration-300 ease-out">
+            <div>
+                <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-list-music text-sky-400"></i>
+                        <h3 class="text-base font-bold text-slate-100">Local Track Library</h3>
+                    </div>
+                    <button id="closeDrawerBtn" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <!-- Action Toolbar for Library -->
+                <div class="flex items-center justify-between mb-3 text-xs">
+                    <span id="trackCount" class="text-slate-400 font-medium">0 tracks saved</span>
+                    <button id="clearLibraryBtn" class="text-rose-400 hover:text-rose-300 flex items-center gap-1 font-semibold">
+                        <i class="fa-solid fa-trash-can"></i> Clear All
+                    </button>
+                </div>
+
+                <!-- Playlist Items Container -->
+                <div id="playlistItems" class="no-scrollbar overflow-y-auto max-h-[60vh] flex flex-col gap-2">
+                    <!-- Tracks dynamically appended here -->
+                </div>
+            </div>
+
+            <!-- Drag & Drop Zone inside drawer -->
+            <div class="border-2 border-dashed border-slate-700/80 hover:border-sky-500/50 rounded-2xl p-4 text-center cursor-pointer transition-colors bg-slate-950/40" id="dropZone">
+                <i class="fa-solid fa-cloud-arrow-up text-sky-400 text-2xl mb-1"></i>
+                <p class="text-xs font-semibold text-slate-300">Tap or drop local files here</p>
+                <p class="text-[10px] text-slate-500 mt-0.5">Supports MP3, WAV, FLAC & matched .LRC files</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lyric Sync Offset Modal -->
+    <div id="offsetModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 w-full max-w-xs flex flex-col gap-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h4 class="text-sm font-bold text-slate-100 flex items-center gap-2">
+                    <i class="fa-solid fa-clock-rotate-left text-sky-400"></i> Sync Delay Adjustment
+                </h4>
+                <button id="closeOffsetBtn" class="text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <p class="text-xs text-slate-400">If lyrics are out of sync with audio, adjust timestamp offset below:</p>
+
+            <div class="flex items-center justify-center gap-4 py-2">
+                <button id="offsetMinus" class="w-10 h-10 rounded-xl bg-slate-800 text-slate-200 font-bold active:scale-95">-0.5s</button>
+                <span id="offsetVal" class="text-base font-mono font-bold text-sky-400">0.0s</span>
+                <button id="offsetPlus" class="w-10 h-10 rounded-xl bg-slate-800 text-slate-200 font-bold active:scale-95">+0.5s</button>
+            </div>
+
+            <button id="resetOffsetBtn" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 rounded-xl transition-colors">
+                Reset Offset
+            </button>
+        </div>
+    </div>
+
+    <!-- Hidden Native Audio Engine -->
+    <audio id="audioEngine" class="hidden"></audio>
+
+    <script>
+        /* PWA Service Worker & Manifest Generator */
+        (function setupPWA() {
+            const manifestData = {
+                name: "SoundLRC Offline Player",
+                short_name: "SoundLRC",
+                start_url: "./",
+                display: "standalone",
+                background_color: "#060911",
+                theme_color: "#060911",
+                icons: [
+                    {
+                        src: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' fill='%2338bdf8'><rect width='512' height='512' rx='100' fill='%23090d16'/><path d='M256 160c-53 0-96 43-96 96s43 96 96 96 96-43 96-96-43-96-96-96zm0 144c-26.5 0-48-21.5-48-48s21.5-48 48-48 48 21.5 48 48-21.5 48-48 48z' fill='%2338bdf8'/></svg>",
+                        sizes: "512x512",
+                        type: "image/svg+xml",
+                        purpose: "any maskable"
+                    }
+                ]
+            };
+            const manifestBlob = new Blob([JSON.stringify(manifestData)], { type: 'application/json' });
+            document.getElementById('manifestPlaceholder').setAttribute('href', URL.createObjectURL(manifestBlob));
+
+            if ('serviceWorker' in navigator) {
+                const swCode = `
+                    const CACHE_NAME = 'soundlrc-v1';
+                    self.addEventListener('install', (e) => {
+                        e.waitUntil(
+                            caches.open(CACHE_NAME).then((cache) => {
+                                return cache.addAll(['./']);
+                            })
+                        );
+                        self.skipWaiting();
+                    });
+
+                    self.addEventListener('fetch', (e) => {
+                        e.respondWith(
+                            caches.match(e.request).then((res) => res || fetch(e.request).catch(() => caches.match('./')))
+                        );
+                    });
+                `;
+                const swBlob = new Blob([swCode], { type: 'application/javascript' });
+                navigator.serviceWorker.register(URL.createObjectURL(swBlob))
+                    .catch(err => console.log('ServiceWorker registration skipped:', err));
+            }
+        })();
+    </script>
+
+    <script>
+        /* Database Engine (IndexedDB) for Local Storage */
+        const DB_NAME = 'SoundLRC_OfflineDB';
+        const DB_VERSION = 1;
+        let db = null;
+
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onupgradeneeded = (e) => {
+                    const database = e.target.result;
+                    if (!database.objectStoreNames.contains('tracks')) {
+                        database.createObjectStore('tracks', { keyPath: 'id' });
+                    }
+                };
+                request.onsuccess = (e) => {
+                    db = e.target.result;
+                    resolve(db);
+                };
+                request.onerror = (e) => reject(e);
+            });
+        }
+
+        async function saveTrackToDB(track) {
+            if (!db) await initDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction('tracks', 'readwrite');
+                const store = tx.objectStore('tracks');
+                store.put(track);
+                tx.oncomplete = () => resolve();
+                tx.onerror = (e) => reject(e);
+            });
+        }
+
+        async function getAllTracksFromDB() {
+            if (!db) await initDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction('tracks', 'readonly');
+                const store = tx.objectStore('tracks');
+                const request = store.getAll();
+                request.onsuccess = () => resolve(request.result || []);
+                request.onerror = (e) => reject(e);
+            });
+        }
+
+        async function clearAllTracksFromDB() {
+            if (!db) await initDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction('tracks', 'readwrite');
+                const store = tx.objectStore('tracks');
+                store.clear();
+                tx.oncomplete = () => resolve();
+                tx.onerror = (e) => reject(e);
+            });
+        }
+    </script>
+
+    <script>
+        /* Application State */
+        let playlist = [];
+        let currentTrackIndex = -1;
+        let parsedLyrics = [];
+        let currentLyricIndex = -1;
+        let syncOffset = 0.0;
+        let deferredPrompt = null;
+
+        // Playback mode: 'shuffle' | 'loop-all' | 'loop-one'
+        let playbackMode = localStorage.getItem('soundlrc_mode') || 'loop-all';
+
+        // DOM Elements
+        const audioEngine = document.getElementById('audioEngine');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const playIcon = document.getElementById('playIcon');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const seekSlider = document.getElementById('seekSlider');
+        const currentTimeEl = document.getElementById('currentTime');
+        const totalDurationEl = document.getElementById('totalDuration');
+        const trackTitle = document.getElementById('trackTitle');
+        const trackArtist = document.getElementById('trackArtist');
+        const albumArt = document.getElementById('albumArt');
+        const lrcStatusBadge = document.getElementById('lrcStatusBadge');
+        const lyricsContainer = document.getElementById('lyricsContainer');
+        const fileInput = document.getElementById('fileInput');
+        
+        const playlistDrawer = document.getElementById('playlistDrawer');
+        const drawerContent = document.getElementById('drawerContent');
+        const playlistToggleBtn = document.getElementById('playlistToggleBtn');
+        const closeDrawerBtn = document.getElementById('closeDrawerBtn');
+        const playlistItems = document.getElementById('playlistItems');
+        const trackCount = document.getElementById('trackCount');
+        const clearLibraryBtn = document.getElementById('clearLibraryBtn');
+        const dropZone = document.getElementById('dropZone');
+
+        const offsetModal = document.getElementById('offsetModal');
+        const syncOffsetBtn = document.getElementById('syncOffsetBtn');
+        const closeOffsetBtn = document.getElementById('closeOffsetBtn');
+        const offsetMinus = document.getElementById('offsetMinus');
+        const offsetPlus = document.getElementById('offsetPlus');
+        const offsetVal = document.getElementById('offsetVal');
+        const resetOffsetBtn = document.getElementById('resetOffsetBtn');
+        const pwaInstallBtn = document.getElementById('pwaInstallBtn');
+
+        const modeBtn = document.getElementById('modeBtn');
+        const modeIcon = document.getElementById('modeIcon');
+
+        /* Mode Configuration */
+        const MODES = {
+            'shuffle':   { icon: 'fa-shuffle',   label: 'Shuffle',   active: false },
+            'loop-all':  { icon: 'fa-repeat',    label: 'Loop All',  active: true  },
+            'loop-one':  { icon: 'fa-repeat-1',  label: 'Loop One',  active: true  }
+        };
+
+        function updateModeUI() {
+            const cfg = MODES[playbackMode];
+            modeIcon.className = `fa-solid ${cfg.icon} text-sm`;
+            if (cfg.active) modeBtn.classList.add('mode-active');
+            else modeBtn.classList.remove('mode-active');
+            modeBtn.title = cfg.label;
+        }
+
+        modeBtn.addEventListener('click', () => {
+            const order = ['shuffle', 'loop-all', 'loop-one'];
+            const idx = order.indexOf(playbackMode);
+            playbackMode = order[(idx + 1) % order.length];
+            localStorage.setItem('soundlrc_mode', playbackMode);
+            updateModeUI();
+        });
+
+        /* Build the next/prev index based on the active playback mode */
+        function getNextIndex(step = 1) {
+            const n = playlist.length;
+            if (n === 0) return -1;
+            if (n === 1) return 0;
+
+            if (playbackMode === 'shuffle') {
+                let next;
+                do {
+                    next = Math.floor(Math.random() * n);
+                } while (next === currentTrackIndex && n > 1);
+                return next;
+            }
+
+            // loop-all (and loop-one falls back to sequential for prev/next buttons)
+            return (currentTrackIndex + step + n) % n;
+        }
+
+        /* Initialize App on Load */
+        window.addEventListener('load', async () => {
+            try {
+                await initDB();
+                playlist = await getAllTracksFromDB();
+                updatePlaylistUI();
+                updateModeUI();
+
+                if (playlist.length > 0) {
+                    loadTrack(0, false);
+                }
+            } catch (err) {
+                console.warn('DB Load warning:', err);
+            }
+        });
+
+        /* PWA Install */
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            pwaInstallBtn.classList.remove('hidden');
+        });
+
+        pwaInstallBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    pwaInstallBtn.classList.add('hidden');
+                }
+                deferredPrompt = null;
+            }
+        });
+
+        /* ===========================================================
+           ID3 ALBUM ART EXTRACTION
+           Reads embedded cover image from the audio file using jsmediatags
+           and stores it as a data URL (so it survives IndexedDB round-trips)
+        =========================================================== */
+        function extractAlbumArt(file) {
+            return new Promise((resolve) => {
+                if (!window.jsmediatags) return resolve(null);
+
+                const name = (file.name || '').toLowerCase();
+                const taggable = name.endsWith('.mp3') || name.endsWith('.m4a') || name.endsWith('.flac');
+                if (!taggable) return resolve(null);
+
+                try {
+                    window.jsmediatags.read(file, {
+                        onSuccess: (tag) => {
+                            try {
+                                const pic = tag.tags.picture;
+                                if (!pic) return resolve(null);
+
+                                const bytes = new Uint8Array(pic.data);
+                                const blob = new Blob([bytes], { type: pic.format || 'image/jpeg' });
+
+                                const reader = new FileReader();
+                                reader.onload = () => resolve(reader.result);
+                                reader.onerror = () => resolve(null);
+                                reader.readAsDataURL(blob);
+                            } catch (e) {
+                                resolve(null);
+                            }
+                        },
+                        onError: () => resolve(null)
+                    });
+                } catch (e) {
+                    resolve(null);
+                }
+            });
+        }
+
+        /* File Processing */
+        fileInput.addEventListener('change', (e) => handleFilesSelected(e.target.files));
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => { e.preventDefault(); dropZone.classList.add('border-sky-400'); });
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => { e.preventDefault(); dropZone.classList.remove('border-sky-400'); });
+        });
+        dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            if (dt && dt.files.length > 0) handleFilesSelected(dt.files);
+        });
+
+        async function handleFilesSelected(files) {
+            if (!files || files.length === 0) return;
+
+            const fileArray = Array.from(files);
+            const audioFiles = fileArray.filter(f => f.type.startsWith('audio/') || f.name.match(/\.(mp3|wav|flac|m4a|ogg)$/i));
+            const lrcFiles = fileArray.filter(f => f.name.endsWith('.lrc'));
+
+            for (const aFile of audioFiles) {
+                const baseName = aFile.name.substring(0, aFile.name.lastIndexOf('.')) || aFile.name;
+                
+                const matchedLrc = lrcFiles.find(l => l.name.substring(0, l.name.lastIndexOf('.')) === baseName);
+                let lrcText = "";
+                if (matchedLrc) {
+                    lrcText = await matchedLrc.text();
+                }
+
+                // Extract embedded album art
+                const artUrl = await extractAlbumArt(aFile);
+
+                const trackObj = {
+                    id: 'track_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    title: baseName,
+                    artist: "Local Track",
+                    audioBlob: aFile,
+                    lrcText: lrcText,
+                    artUrl: artUrl
+                };
+
+                playlist.push(trackObj);
+                await saveTrackToDB(trackObj);
+            }
+
+            if (audioFiles.length === 0 && lrcFiles.length > 0 && currentTrackIndex !== -1) {
+                const lrcContent = await lrcFiles[0].text();
+                playlist[currentTrackIndex].lrcText = lrcContent;
+                await saveTrackToDB(playlist[currentTrackIndex]);
+                parseAndRenderLRC(lrcContent);
+            }
+
+            updatePlaylistUI();
+
+            if (currentTrackIndex === -1 && playlist.length > 0) {
+                loadTrack(playlist.length - audioFiles.length, true);
+            }
+        }
+
+        /* Load Track */
+        function loadTrack(index, autoPlay = true) {
+            if (index < 0 || index >= playlist.length) return;
+            
+            currentTrackIndex = index;
+            const track = playlist[currentTrackIndex];
+
+            const audioUrl = URL.createObjectURL(track.audioBlob);
+            audioEngine.src = audioUrl;
+
+            trackTitle.textContent = track.title;
+            trackArtist.textContent = track.artist || "Local Audio";
+
+            const fallbackArt = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='1.5'><circle cx='12' cy='12' r='10'/><circle cx='12' cy='12' r='3'/></svg>";
+            albumArt.src = track.artUrl || fallbackArt;
+            albumArt.classList.remove('cover-playing');
+
+            if (track.lrcText) {
+                parseAndRenderLRC(track.lrcText);
+            } else {
+                parsedLyrics = [];
+                renderEmptyLyricsState();
+            }
+
+            setupMediaSession(track);
+            updatePlaylistHighlight();
+
+            if (autoPlay) {
+                playAudio();
+            }
+        }
+
+        /* Parse LRC */
+        function parseAndRenderLRC(lrcRaw) {
+            parsedLyrics = [];
+            currentLyricIndex = -1;
+            const lines = lrcRaw.split('\n');
+            const timeRegex = /\[(\d{2}):(\d{2})(?:[\.\:](\d{2,3}))?\]/g;
+
+            lines.forEach(line => {
+                const matches = [...line.matchAll(timeRegex)];
+                const text = line.replace(timeRegex, '').trim();
+
+                if (matches.length > 0 && text.length > 0) {
+                    matches.forEach(match => {
+                        const mins = parseInt(match[1], 10);
+                        const secs = parseInt(match[2], 10);
+                        const ms = match[3] ? parseInt(match[3].padEnd(3, '0').substring(0, 3), 10) : 0;
+                        const totalSecs = mins * 60 + secs + ms / 1000;
+                        parsedLyrics.push({ time: totalSecs, text });
+                    });
+                }
+            });
+
+            parsedLyrics.sort((a, b) => a.time - b.time);
+
+            if (parsedLyrics.length > 0) {
+                lrcStatusBadge.textContent = `${parsedLyrics.length} Sync Lines`;
+                lrcStatusBadge.className = "text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30";
+                renderLyricsList();
+            } else {
+                renderEmptyLyricsState();
+            }
+        }
+
+        function renderLyricsList() {
+            lyricsContainer.innerHTML = '';
+            parsedLyrics.forEach((item, idx) => {
+                const div = document.createElement('div');
+                div.className = 'lyric-line text-lg sm:text-xl font-medium py-1.5 px-4 cursor-pointer rounded-xl max-w-lg';
+                div.textContent = item.text;
+                div.dataset.index = idx;
+
+                div.addEventListener('click', () => {
+                    audioEngine.currentTime = item.time + syncOffset;
+                    syncLyricPosition(item.time + syncOffset);
+                    if (audioEngine.paused) playAudio();
+                });
+
+                lyricsContainer.appendChild(div);
+            });
+        }
+
+        function renderEmptyLyricsState() {
+            lrcStatusBadge.textContent = "No LRC Loaded";
+            lrcStatusBadge.className = "text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-500 border border-slate-700/40";
+            lyricsContainer.innerHTML = `
+                <div class="my-auto flex flex-col items-center gap-3 text-slate-500">
+                    <div class="w-16 h-16 rounded-full bg-slate-900/80 border border-slate-800 flex items-center justify-center text-slate-600 text-2xl mb-1">
+                        <i class="fa-solid fa-align-center"></i>
+                    </div>
+                    <p class="text-sm font-medium text-slate-400">No synchronized lyrics</p>
+                    <p class="text-xs text-slate-600 max-w-xs text-center">Tap the folder icon below to import a <code class="text-sky-400 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">.lrc</code> file</p>
+                </div>`;
+        }
+
+        function syncLyricPosition(timeSecs) {
+            if (parsedLyrics.length === 0) return;
+
+            const adjustedTime = timeSecs - syncOffset;
+            let activeIdx = -1;
+
+            for (let i = 0; i < parsedLyrics.length; i++) {
+                if (adjustedTime >= parsedLyrics[i].time) {
+                    activeIdx = i;
+                } else {
+                    break;
+                }
+            }
+
+            if (activeIdx !== currentLyricIndex) {
+                const prevActive = lyricsContainer.querySelector('.lyric-line.active');
+                if (prevActive) {
+                    prevActive.classList.remove('active');
+                    prevActive.classList.add('passed');
+                }
+
+                currentLyricIndex = activeIdx;
+
+                if (currentLyricIndex !== -1) {
+                    const currentEl = lyricsContainer.children[currentLyricIndex];
+                    if (currentEl) {
+                        currentEl.classList.remove('passed');
+                        currentEl.classList.add('active');
+
+                        const containerHeight = lyricsContainer.clientHeight;
+                        const lineTop = currentEl.offsetTop;
+                        const lineHeight = currentEl.clientHeight;
+
+                        lyricsContainer.scrollTo({
+                            top: lineTop - (containerHeight / 2) + (lineHeight / 2),
+                            behavior: 'smooth'
+                        });
+                    }
+                }
+            }
+        }
+
+        /* Playback */
+        function playAudio() {
+            if (!audioEngine.src) return;
+            audioEngine.play();
+            playIcon.className = "fa-solid fa-pause";
+            albumArt.classList.add('cover-playing');
+            if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+        }
+
+        function pauseAudio() {
+            audioEngine.pause();
+            playIcon.className = "fa-solid fa-play ml-1";
+            albumArt.classList.remove('cover-playing');
+            if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+        }
+
+        playPauseBtn.addEventListener('click', () => {
+            if (audioEngine.paused) playAudio();
+            else pauseAudio();
+        });
+
+        prevBtn.addEventListener('click', () => {
+            if (playlist.length === 0) return;
+            const newIdx = getNextIndex(-1);
+            loadTrack(newIdx, true);
+        });
+
+        nextBtn.addEventListener('click', () => {
+            if (playlist.length === 0) return;
+            const newIdx = getNextIndex(1);
+            loadTrack(newIdx, true);
+        });
+
+        /* Time & Scrubber */
+        audioEngine.addEventListener('timeupdate', () => {
+            const cur = audioEngine.currentTime;
+            const dur = audioEngine.duration;
+
+            currentTimeEl.textContent = formatTime(cur);
+            if (dur) {
+                seekSlider.value = (cur / dur) * 100;
+                totalDurationEl.textContent = formatTime(dur);
+            }
+            syncLyricPosition(cur);
+        });
+
+        /* Ended event: respects playback mode */
+        audioEngine.addEventListener('ended', () => {
+            if (playlist.length === 0) return;
+
+            if (playbackMode === 'loop-one') {
+                audioEngine.currentTime = 0;
+                playAudio();
+                return;
+            }
+
+            const nextIdx = getNextIndex(1);
+            loadTrack(nextIdx, true);
+        });
+
+        seekSlider.addEventListener('input', (e) => {
+            if (!audioEngine.duration) return;
+            const targetTime = (e.target.value / 100) * audioEngine.duration;
+            audioEngine.currentTime = targetTime;
+            syncLyricPosition(targetTime);
+        });
+
+        function formatTime(secs) {
+            if (isNaN(secs)) return '00:00';
+            const m = Math.floor(secs / 60);
+            const s = Math.floor(secs % 60);
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        /* Media Session API */
+        function setupMediaSession(track) {
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: track.title,
+                    artist: track.artist || "Local Offline Track",
+                    album: "SoundLRC Storage",
+                    artwork: [
+                        { src: track.artUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="%23060911"/></svg>', sizes: '512x512', type: 'image/png' }
+                    ]
+                });
+
+                navigator.mediaSession.setActionHandler('play', () => playAudio());
+                navigator.mediaSession.setActionHandler('pause', () => pauseAudio());
+                navigator.mediaSession.setActionHandler('previoustrack', () => prevBtn.click());
+                navigator.mediaSession.setActionHandler('nexttrack', () => nextBtn.click());
+                navigator.mediaSession.setActionHandler('seekto', (details) => {
+                    if (details.seekTime) {
+                        audioEngine.currentTime = details.seekTime;
+                        syncLyricPosition(details.seekTime);
+                    }
+                });
+            }
+        }
+
+        /* Drawer */
+        playlistToggleBtn.addEventListener('click', toggleDrawer);
+        closeDrawerBtn.addEventListener('click', toggleDrawer);
+
+        function toggleDrawer() {
+            const isHidden = playlistDrawer.classList.contains('opacity-0');
+            if (isHidden) {
+                playlistDrawer.classList.remove('opacity-0', 'pointer-events-none');
+                drawerContent.classList.remove('translate-x-full');
+            } else {
+                playlistDrawer.classList.add('opacity-0', 'pointer-events-none');
+                drawerContent.classList.add('translate-x-full');
+            }
+        }
+
+        function updatePlaylistUI() {
+            playlistItems.innerHTML = '';
+            trackCount.textContent = `${playlist.length} track${playlist.length === 1 ? '' : 's'}`;
+
+            playlist.forEach((item, idx) => {
+                const trackCard = document.createElement('div');
+                trackCard.className = `flex items-center justify-between p-3 rounded-2xl cursor-pointer border transition-all ${
+                    idx === currentTrackIndex 
+                    ? 'bg-sky-500/15 border-sky-500/40 text-sky-400 font-semibold' 
+                    : 'bg-slate-800/40 border-slate-800/60 text-slate-300 hover:bg-slate-800/80'
+                }`;
+
+                trackCard.innerHTML = `
+                    <div class="flex items-center gap-3 min-w-0 flex-1">
+                        <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0 text-xs overflow-hidden">
+                            ${item.artUrl 
+                                ? `<img src="${item.artUrl}" class="w-full h-full object-cover">` 
+                                : `<i class="fa-solid ${idx === currentTrackIndex ? 'fa-waveform text-sky-400' : 'fa-music text-slate-500'}"></i>`}
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-xs truncate font-bold">${item.title}</p>
+                            <p class="text-[10px] text-slate-500 truncate">${item.lrcText ? '✓ Has LRC' : 'No Lyrics'}</p>
+                        </div>
+                    </div>
+                `;
+
+                trackCard.addEventListener('click', () => {
+                    loadTrack(idx, true);
+                    toggleDrawer();
+                });
+
+                playlistItems.appendChild(trackCard);
+            });
+        }
+
+        function updatePlaylistHighlight() {
+            updatePlaylistUI();
+        }
+
+        clearLibraryBtn.addEventListener('click', async () => {
+            if (confirm("Clear all local songs and lyrics stored offline?")) {
+                await clearAllTracksFromDB();
+                playlist = [];
+                currentTrackIndex = -1;
+                audioEngine.src = '';
+                trackTitle.textContent = "No Song Loaded";
+                trackArtist.textContent = "Select local MP3 or LRC files";
+                renderEmptyLyricsState();
+                updatePlaylistUI();
+            }
+        });
+
+        /* Offset Modal */
+        syncOffsetBtn.addEventListener('click', () => offsetModal.classList.remove('hidden'));
+        closeOffsetBtn.addEventListener('click', () => offsetModal.classList.add('hidden'));
+
+        offsetMinus.addEventListener('click', () => { syncOffset -= 0.5; updateOffsetDisplay(); });
+        offsetPlus.addEventListener('click', () => { syncOffset += 0.5; updateOffsetDisplay(); });
+        resetOffsetBtn.addEventListener('click', () => { syncOffset = 0.0; updateOffsetDisplay(); });
+
+        function updateOffsetDisplay() {
+            offsetVal.textContent = `${syncOffset >= 0 ? '+' : ''}${syncOffset.toFixed(1)}s`;
+            syncLyricPosition(audioEngine.currentTime);
+        }
+    </script>
+</body>
+</html>
