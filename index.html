@@ -76,7 +76,7 @@
       height: 56px;
       fill: #555;
     }
-    /* Controls Header & File Selection */
+    /* Balanced Header File Selection Buttons */
     .file-actions {
       display: flex;
       justify-content: space-between;
@@ -87,7 +87,7 @@
       background: #2a2a2a;
       color: #00d2ff;
       border: 1px solid #00d2ff;
-      padding: 8px;
+      padding: 10px;
       border-radius: 12px;
       font-size: 13px;
       font-weight: bold;
@@ -97,6 +97,10 @@
       align-items: center;
       justify-content: center;
       gap: 6px;
+      transition: background 0.2s;
+    }
+    .file-btn:active {
+      background: #333;
     }
     .file-btn svg {
       width: 16px;
@@ -185,7 +189,7 @@
       font-size: 16px;
     }
 
-    /* Song List Drawer / Overlay */
+    /* Song List Overlay */
     #playlist-modal {
       display: none;
       position: absolute;
@@ -227,7 +231,7 @@
 
 <div class="player-card">
 
-  <!-- File Selectors -->
+  <!-- File Selectors with Uniform Styling -->
   <div class="file-actions">
     <label class="file-btn" for="audio-input">
       <svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>
@@ -235,7 +239,7 @@
     </label>
     <input type="file" id="audio-input" accept="audio/*" multiple>
 
-    <label class="file-btn" for="lrc-input" style="color: #aaa; border-color: #444;">
+    <label class="file-btn" for="lrc-input">
       <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
       Add .LRC
     </label>
@@ -259,29 +263,24 @@
 
   <!-- Controls -->
   <div class="controls">
-    <!-- Song List Button -->
     <button class="btn-ctrl" id="btn-playlist" onclick="togglePlaylistView()" title="Song List">
       <svg viewBox="0 0 24 24"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>
     </button>
     
-    <!-- Previous Button -->
     <button class="btn-ctrl" id="btn-prev" onclick="playPrev()">
       <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
     </button>
     
-    <!-- Play/Pause Main Button -->
     <button class="btn-ctrl btn-main" id="btn-play" onclick="togglePlay()">
       <span id="play-icon">
         <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
       </span>
     </button>
     
-    <!-- Next Button -->
     <button class="btn-ctrl" id="btn-next" onclick="playNext()">
       <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
     </button>
     
-    <!-- Playback Mode Toggle -->
     <button class="btn-ctrl" id="btn-mode" onclick="cyclePlaybackMode()" title="Playback Mode">
       <span id="mode-icon">
         <svg viewBox="0 0 24 24"><path d="M16.01 11H4v2h12.01v3L20 12l-3.99-4v3z"/></svg>
@@ -326,7 +325,6 @@
   const playlistModal = document.getElementById('playlist-modal');
   const playlistItems = document.getElementById('playlist-items');
 
-  // SVG Icons Definition
   const svgIcons = {
     play: `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`,
     pause: `<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`,
@@ -340,19 +338,18 @@
   let lrcFiles = {};
   let lyricsData = [];
   let currentIndex = 0;
-  
-  // 0: Order, 1: Repeat All, 2: Repeat One, 3: Shuffle
-  let playbackMode = 0;
+  let playbackMode = 0; // 0: Order, 1: Repeat All, 2: Repeat One, 3: Shuffle
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Registration failed:', err));
   }
 
-  function cleanFileName(str) {
-    return str.toLowerCase().replace(/\.[^/.]+$/, "").replace(/[^a-z0-9]/g, "");
+  // Helper to remove file extension
+  function getBaseName(fileName) {
+    return fileName.substring(0, fileName.lastIndexOf('.')) || fileName;
   }
 
-  // --- File Inputs ---
+  // --- File Imports ---
   audioInput.addEventListener('change', (e) => {
     playlist = Array.from(e.target.files).filter(f => f.type.includes('audio') || f.name.endsWith('.mp3'));
     renderPlaylistMenu();
@@ -365,13 +362,13 @@
   lrcInput.addEventListener('change', (e) => {
     const files = Array.from(e.target.files);
     files.forEach(file => {
-      const key = cleanFileName(file.name);
+      const baseName = getBaseName(file.name).toLowerCase().trim();
       const reader = new FileReader();
       reader.onload = (event) => {
-        lrcFiles[key] = parseLRC(event.target.result);
+        lrcFiles[baseName] = parseLRC(event.target.result);
         if (playlist[currentIndex]) {
-          const currentKey = cleanFileName(playlist[currentIndex].name);
-          if (currentKey === key) renderLyrics(lrcFiles[key]);
+          const currentBase = getBaseName(playlist[currentIndex].name).toLowerCase().trim();
+          if (currentBase === baseName) renderLyrics(lrcFiles[baseName]);
         }
       };
       reader.readAsText(file);
@@ -383,13 +380,14 @@
     if (!playlist[index]) return;
     const file = playlist[index];
     audio.src = URL.createObjectURL(file);
-    songTitle.innerText = file.name.replace(/\.[^/.]+$/, "");
+    songTitle.innerText = getBaseName(file.name);
 
     extractCoverArt(file);
 
-    const key = cleanFileName(file.name);
-    if (lrcFiles[key]) {
-      renderLyrics(lrcFiles[key]);
+    // Reliable LRC Matching
+    const currentBase = getBaseName(file.name).toLowerCase().trim();
+    if (lrcFiles[currentBase]) {
+      renderLyrics(lrcFiles[currentBase]);
     } else {
       lyricsData = [];
       lyricsContainer.innerHTML = '<div class="lyric-line">No matching .lrc file loaded</div>';
@@ -424,7 +422,7 @@
     coverPlaceholder.style.display = 'flex';
   }
 
-  // --- Controls & Playback Modes ---
+  // --- Controls ---
   function togglePlay() {
     if (!audio.src) return;
     if (audio.paused) {
@@ -455,12 +453,11 @@
 
   function playNext() {
     if (playlist.length === 0) return;
-    if (playbackMode === 3) { // Shuffle
-      let nextIndex = Math.floor(Math.random() * playlist.length);
-      currentIndex = nextIndex;
+    if (playbackMode === 3) {
+      currentIndex = Math.floor(Math.random() * playlist.length);
     } else if (currentIndex < playlist.length - 1) {
       currentIndex++;
-    } else if (playbackMode === 1) { // Repeat All
+    } else if (playbackMode === 1) {
       currentIndex = 0;
     } else {
       return;
@@ -479,7 +476,7 @@
   }
 
   audio.addEventListener('ended', () => {
-    if (playbackMode === 2) { // Repeat One
+    if (playbackMode === 2) {
       audio.currentTime = 0;
       audio.play();
     } else {
@@ -487,7 +484,7 @@
     }
   });
 
-  // --- Song List Drawer ---
+  // --- Playlist Menu ---
   function togglePlaylistView() {
     playlistModal.style.display = playlistModal.style.display === 'flex' ? 'none' : 'flex';
   }
@@ -497,7 +494,7 @@
     playlist.forEach((file, idx) => {
       const div = document.createElement('div');
       div.className = `track-item ${idx === currentIndex ? 'active' : ''}`;
-      div.innerText = `${idx + 1}. ${file.name.replace(/\.[^/.]+$/, "")}`;
+      div.innerText = `${idx + 1}. ${getBaseName(file.name)}`;
       div.onclick = () => {
         currentIndex = idx;
         loadTrack(currentIndex);
@@ -525,6 +522,7 @@
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   }
 
+  // --- Restored Original LRC Parser ---
   function parseLRC(text) {
     const lines = text.split('\n');
     const result = [];
