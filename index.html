@@ -534,43 +534,60 @@
         });
 
         /* ===========================================================
-           ID3 ALBUM ART EXTRACTION
-           Reads embedded cover image from the audio file using jsmediatags
-           and stores it as a data URL (so it survives IndexedDB round-trips)
-        =========================================================== */
-        function extractAlbumArt(file) {
-            return new Promise((resolve) => {
-                if (!window.jsmediatags) return resolve(null);
+   ID3 METADATA + ALBUM ART EXTRACTION
+   Reads embedded title, artist, and cover art using jsmediatags
+=========================================================== */
+function extractMetadata(file) {
+    return new Promise((resolve) => {
+        const result = { artUrl: null, artist: null, title: null, album: null };
 
-                const name = (file.name || '').toLowerCase();
-                const taggable = name.endsWith('.mp3') || name.endsWith('.m4a') || name.endsWith('.flac');
-                if (!taggable) return resolve(null);
+        if (!window.jsmediatags) return resolve(result);
 
-                try {
-                    window.jsmediatags.read(file, {
-                        onSuccess: (tag) => {
-                            try {
-                                const pic = tag.tags.picture;
-                                if (!pic) return resolve(null);
+        const name = (file.name || '').toLowerCase();
+        const taggable = name.endsWith('.mp3') || name.endsWith('.m4a') || name.endsWith('.flac');
+        if (!taggable) return resolve(result);
 
-                                const bytes = new Uint8Array(pic.data);
-                                const blob = new Blob([bytes], { type: pic.format || 'image/jpeg' });
+        try {
+            window.jsmediatags.read(file, {
+                onSuccess: (tag) => {
+                    try {
+                        const tags = tag.tags || {};
 
-                                const reader = new FileReader();
-                                reader.onload = () => resolve(reader.result);
-                                reader.onerror = () => resolve(null);
-                                reader.readAsDataURL(blob);
-                            } catch (e) {
-                                resolve(null);
-                            }
-                        },
-                        onError: () => resolve(null)
-                    });
-                } catch (e) {
-                    resolve(null);
-                }
+                        // --- Artist ---
+                        if (tags.artist) result.artist = tags.artist;
+
+                        // --- Title ---
+                        if (tags.title) result.title = tags.title;
+
+                        // --- Album ---
+                        if (tags.album) result.album = tags.album;
+
+                        // --- Album Art ---
+                        const pic = tags.picture;
+                        if (pic) {
+                            const bytes = new Uint8Array(pic.data);
+                            const blob = new Blob([bytes], { type: pic.format || 'image/jpeg' });
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                                result.artUrl = reader.result;
+                                resolve(result);
+                            };
+                            reader.onerror = () => resolve(result);
+                            reader.readAsDataURL(blob);
+                        } else {
+                            resolve(result);
+                        }
+                    } catch (e) {
+                        resolve(result);
+                    }
+                },
+                onError: () => resolve(result)
             });
+        } catch (e) {
+            resolve(result);
         }
+    });
+}
 
         /* File Processing */
         fileInput.addEventListener('change', (e) => handleFilesSelected(e.target.files));
@@ -603,17 +620,18 @@
                     lrcText = await matchedLrc.text();
                 }
 
-                // Extract embedded album art
-                const artUrl = await extractAlbumArt(aFile);
+                // Extract embedded metadata (artist, title, album art)
+const meta = await extractMetadata(aFile);
 
-                const trackObj = {
-                    id: 'track_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-                    title: baseName,
-                    artist: "Local Track",
-                    audioBlob: aFile,
-                    lrcText: lrcText,
-                    artUrl: artUrl
-                };
+const trackObj = {
+    id: 'track_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+    title: meta.title || baseName,        // ← prefer ID3 title, fallback to filename
+    artist: meta.artist || "Unknown Artist", // ← real artist from ID3
+    album: meta.album || "",
+    audioBlob: aFile,
+    lrcText: lrcText,
+    artUrl: meta.artUrl
+};
 
                 playlist.push(trackObj);
                 await saveTrackToDB(trackObj);
